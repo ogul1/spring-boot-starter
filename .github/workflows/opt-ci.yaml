@@ -1,0 +1,72 @@
+
+name: Modified Java CI
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        cache:
+        - maven
+        distribution:
+        - temurin
+        java:
+        - 17
+        - 21
+        - 22
+        - 23-ea
+        os:
+        - ubuntu-latest
+        - macos-latest
+        - windows-latest
+      fail-fast: false
+      max-parallel: 4
+    name: test (${{ matrix.cache }}, ${{ matrix.distribution }}, ${{ matrix.java }},
+      ${{ matrix.os }})
+    steps:
+    - name: Setup Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    - name: Install dependencies
+      run: |-
+        python -m pip install --upgrade pip
+        pip install inotify
+    - name: Run inotifywait
+      run: |-
+        python3 -c "
+        import inotify.adapters
+        import inotify.constants
+        import os
+        from datetime import datetime, timezone
+        with open('/home/runner/inotifywait-log-test (${{ matrix.cache }}, ${{ matrix.distribution }}, ${{ matrix.java }}, ${{ matrix.os }}).csv', 'w') as log_file:
+          i = inotify.adapters.InotifyTree('/home/runner/work/spring-boot-starter/spring-boot-starter', inotify.constants.IN_CREATE | inotify.constants.IN_ACCESS)
+          for event in i.event_gen(yield_nones=False):
+            (_, type_names, path, filename) = event
+            now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f') + 'Z'
+            events = ','.join(type_names)
+            log_file.write(f'{now};{path};{filename};{events}\n')
+            log_file.flush()
+            os.fsync(log_file.fileno())
+        " &
+    - uses: actions/checkout@v4
+    - run: touch optcd-3.txt
+    - name: Set up JDK ${{ matrix.java }} ${{ matrix.distribution }}
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ matrix.java }}
+        distribution: ${{ matrix.distribution }}
+        cache: ${{ matrix.cache }}
+    - run: touch optcd-4.txt
+    - name: Test with Maven
+      run: ./mvnw test -B -V --no-transfer-progress -D"license.skip=true"
+    - run: touch optcd-5.txt
+    - name: Upload inotifywait logs
+      uses: actions/upload-artifact@v4
+      with:
+        name: inotifywait-test (${{ matrix.cache }}, ${{ matrix.distribution }}, ${{
+          matrix.java }}, ${{ matrix.os }})
+        path: /home/runner/inotifywait-log-test (${{ matrix.cache }}, ${{ matrix.distribution
+          }}, ${{ matrix.java }}, ${{ matrix.os }}).csv
+'on':
+- push
+- workflow_dispatch
